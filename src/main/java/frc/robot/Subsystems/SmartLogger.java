@@ -1,12 +1,11 @@
 package frc.robot.Subsystems;
 
-import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
 
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
-import frc.robot.Subsystems.SmartLogger.loggingItem;
+
 
 public class SmartLogger extends SubsystemBase {
     List<loggingItem> loggers = new ArrayList<>();
