@@ -7,17 +7,16 @@ import java.util.Optional;
 import org.photonvision.EstimatedRobotPose;
 import org.photonvision.PhotonCamera;
 import org.photonvision.PhotonPoseEstimator;
-import org.photonvision.PhotonUtils;
 import org.photonvision.targeting.PhotonPipelineResult;
 
 import edu.wpi.first.apriltag.AprilTagFieldLayout;
 import edu.wpi.first.apriltag.AprilTagFields;
 import edu.wpi.first.math.geometry.Transform3d;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
-import frc.robot.Subsystems.Vision.collectiveCamera;
+import frc.robot.Subsystems.SmartLogger.loggingItem;
 
 public class Vision extends SubsystemBase {
-    public static final double OLDEST_POSE = 0.08;
+    public static final double OLDEST_POSE = 0.04;
 
     public static final AprilTagFieldLayout kTagField = AprilTagFieldLayout.loadField(AprilTagFields.kDefaultField);
 
@@ -29,11 +28,14 @@ public class Vision extends SubsystemBase {
         Optional<EstimatedRobotPose> pose;
         List<EstimatedRobotPose> poseCache = new ArrayList<>();
 
+        loggingItem cameraLogs;
+
         collectiveCamera(String name, PhotonPoseEstimator estimator, Double oldestPoseSeconds) {
             this.cam = new PhotonCamera(name);
             this.cam.setFPSLimit(50); // prevent buildup
             this.estimator = estimator;
             this.oldestPoseSeconds = oldestPoseSeconds;
+            this.cameraLogs = new loggingItem(name, 2);
         }
 
         public void update() {
@@ -52,13 +54,13 @@ public class Vision extends SubsystemBase {
             this.pose = this.estimator.estimateCoprocMultiTagPose(resultCache.get(0));
 
             if (this.pose.isEmpty()) {
-                return;
                 // backup method
-                // this.pose = this.estimator.estimateAverageBestTargetsPose(resultCache.get(0));
-                // if (this.pose.isEmpty()) {
-                //     return;
-                // }
+                this.pose = this.estimator.estimateAverageBestTargetsPose(resultCache.get(0));
+                if (this.pose.isEmpty()) {
+                    return;
+                }
             }
+            cameraLogs.pushValue(this.pose.get().toString());
             // add pose to cache
             this.poseCache.add(this.pose.get());
 
@@ -68,6 +70,7 @@ public class Vision extends SubsystemBase {
                     this.poseCache.remove(i);
                 }
             }
+
         }
     }
 
@@ -83,6 +86,7 @@ public class Vision extends SubsystemBase {
     public void periodic() {
         for (collectiveCamera c : cameras) {
             c.update();
+            c.cameraLogs.smartdashboardHook();
         }
     }
 }
