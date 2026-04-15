@@ -11,14 +11,19 @@ import org.photonvision.targeting.PhotonPipelineResult;
 
 import edu.wpi.first.apriltag.AprilTagFieldLayout;
 import edu.wpi.first.apriltag.AprilTagFields;
+import edu.wpi.first.math.geometry.Pose3d;
+import edu.wpi.first.math.geometry.Rotation3d;
 import edu.wpi.first.math.geometry.Transform3d;
+import edu.wpi.first.math.geometry.Translation3d;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.Subsystems.SmartLogger.loggingItem;
+import frc.robot.Subsystems.Vision.collectiveCamera;
 
 public class Vision extends SubsystemBase {
     public static final double OLDEST_POSE = 0.04;
-
     public static final AprilTagFieldLayout kTagField = AprilTagFieldLayout.loadField(AprilTagFields.kDefaultField);
+
+    public Pose3d visionPoseRAW = Pose3d.kZero;
 
     public class collectiveCamera {
         PhotonCamera cam;
@@ -26,7 +31,8 @@ public class Vision extends SubsystemBase {
         Double oldestPoseSeconds;
         List<PhotonPipelineResult> resultCache = new ArrayList<>();
         Optional<EstimatedRobotPose> pose;
-        List<EstimatedRobotPose> poseCache = new ArrayList<>();
+        private List<EstimatedRobotPose> poseCache = new ArrayList<>();
+        List<EstimatedRobotPose> poseBuffer = new ArrayList<>();
 
         loggingItem cameraLogs;
 
@@ -39,6 +45,7 @@ public class Vision extends SubsystemBase {
         }
 
         public void update() {
+            poseCache = poseBuffer;
             resultCache = this.cam.getAllUnreadResults();
 
             if (resultCache.size() > 1) {
@@ -64,13 +71,13 @@ public class Vision extends SubsystemBase {
             // add pose to cache
             this.poseCache.add(this.pose.get());
 
+            this.poseBuffer.clear();
             // if pose is too old, remove from cache
             for (int i = 0; i < this.poseCache.size(); i++) {
-                if (this.poseCache.get(i).timestampSeconds > this.oldestPoseSeconds) {
-                    this.poseCache.remove(i);
+                if (this.poseCache.get(i).timestampSeconds < this.oldestPoseSeconds) {
+                    this.poseBuffer.add(this.poseCache.get(i));
                 }
             }
-
         }
     }
 
@@ -81,6 +88,25 @@ public class Vision extends SubsystemBase {
     collectiveCamera[] cameras = {
             new collectiveCamera("fuzz", quickEstimator(Transform3d.kZero), OLDEST_POSE)
     };
+
+    public Pose3d compiledVisionPose(collectiveCamera[] cameraArray) {
+        List<EstimatedRobotPose> compiledPose = new ArrayList<>();
+        Rotation3d compiledRotation = Rotation3d.kZero;
+        Translation3d compiledTranslation = Translation3d.kZero;
+        
+        for (collectiveCamera cam : cameraArray) {
+            compiledPose.addAll(cam.poseBuffer);
+        }
+
+        for (int i = 0; i < compiledPose.size(); i++) {
+            compiledRotation.plus(compiledPose.get(i).estimatedPose.getRotation());
+            compiledTranslation.plus(compiledPose.get(i).estimatedPose.getTranslation());
+        }
+        compiledRotation = compiledRotation.div(compiledPose.size());
+        compiledTranslation = compiledTranslation.div(compiledPose.size());
+
+        return new Pose3d(compiledTranslation, compiledRotation);
+    }
 
     @Override
     public void periodic() {
