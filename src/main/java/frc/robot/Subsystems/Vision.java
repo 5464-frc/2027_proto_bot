@@ -12,11 +12,15 @@ import org.photonvision.targeting.PhotonPipelineResult;
 
 import edu.wpi.first.apriltag.AprilTagFieldLayout;
 import edu.wpi.first.apriltag.AprilTagFields;
+import edu.wpi.first.math.geometry.Transform3d;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
+import frc.robot.Subsystems.Vision.collectiveCamera;
 
 public class Vision extends SubsystemBase {
+    public static final double OLDEST_POSE = 0.08;
 
-    public static final AprilTagFieldLayout kTagField = AprilTagFieldLayout.loadField(AprilTagFields.kDefaultField); 
+    public static final AprilTagFieldLayout kTagField = AprilTagFieldLayout.loadField(AprilTagFields.kDefaultField);
+
     public class collectiveCamera {
         PhotonCamera cam;
         PhotonPoseEstimator estimator;
@@ -48,15 +52,17 @@ public class Vision extends SubsystemBase {
             this.pose = this.estimator.estimateCoprocMultiTagPose(resultCache.get(0));
 
             if (this.pose.isEmpty()) {
+                return;
                 // backup method
-                this.pose = this.estimator.estimateAverageBestTargetsPose(resultCache.get(0));
-                if (this.pose.isEmpty()) {
-                    return;
-                }
+                // this.pose = this.estimator.estimateAverageBestTargetsPose(resultCache.get(0));
+                // if (this.pose.isEmpty()) {
+                //     return;
+                // }
             }
-
+            // add pose to cache
             this.poseCache.add(this.pose.get());
 
+            // if pose is too old, remove from cache
             for (int i = 0; i < this.poseCache.size(); i++) {
                 if (this.poseCache.get(i).timestampSeconds > this.oldestPoseSeconds) {
                     this.poseCache.remove(i);
@@ -64,7 +70,19 @@ public class Vision extends SubsystemBase {
             }
         }
     }
+
+    private PhotonPoseEstimator quickEstimator(Transform3d cameraToCenter) {
+        return new PhotonPoseEstimator(kTagField, cameraToCenter);
+    }
+
+    collectiveCamera[] cameras = {
+            new collectiveCamera("fuzz", quickEstimator(Transform3d.kZero), OLDEST_POSE)
+    };
+
     @Override
     public void periodic() {
+        for (collectiveCamera c : cameras) {
+            c.update();
+        }
     }
 }
