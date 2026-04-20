@@ -15,6 +15,8 @@ import edu.wpi.first.math.geometry.Pose3d;
 import edu.wpi.first.math.geometry.Rotation3d;
 import edu.wpi.first.math.geometry.Transform3d;
 import edu.wpi.first.math.geometry.Translation3d;
+import edu.wpi.first.wpilibj.smartdashboard.Field2d;
+import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.Subsystems.SmartLogger.loggingItem;
 import frc.robot.Subsystems.Vision.collectiveCamera;
@@ -24,7 +26,7 @@ public class Vision extends SubsystemBase {
     public static final AprilTagFieldLayout kTagField = AprilTagFieldLayout.loadField(AprilTagFields.kDefaultField);
 
     public Pose3d visionPoseRAW = Pose3d.kZero;
-
+    public Field2d visionField = new Field2d();
     public class collectiveCamera {
         PhotonCamera cam;
         PhotonPoseEstimator estimator;
@@ -114,5 +116,7 @@ public class Vision extends SubsystemBase {
             c.update();
             c.cameraLogs.smartdashboardHook();
         }
+        visionField.setRobotPose(compiledVisionPose(cameras).toPose2d());
+        SmartDashboard.putData("vision_est_field",visionField);
     }
 }
