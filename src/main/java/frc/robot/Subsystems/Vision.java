@@ -55,8 +55,8 @@ public class Vision extends SubsystemBase {
         }
     }
 
-    public class SDVA {
-        // smart decay vision array
+    public class DIVA {
+        // Decay Implemented Vision Array
 
         int maxCacheLen; // rec: cam count * like 4-ish
         double oldestPoseSec; // smoothes things out at the cost of slower updates
@@ -66,7 +66,7 @@ public class Vision extends SubsystemBase {
 
         Pose3d calculatedRobotPose = Pose3d.kZero;
 
-        public SDVA(cameraFrame[] cameras, int maxCacheLen, double oldestPoseSec) {
+        public DIVA(cameraFrame[] cameras, int maxCacheLen, double oldestPoseSec) {
             this.cameras = cameras;
             this.maxCacheLen = maxCacheLen;
             this.oldestPoseSec = oldestPoseSec;
@@ -163,7 +163,7 @@ public class Vision extends SubsystemBase {
                             Transform3d.kZero)),
             new cameraFrame("bar", new PhotonPoseEstimator(AprilTagFieldLayout.loadField(AprilTagFields.kDefaultField),
                             Transform3d.kZero))};
-    SDVA main = new SDVA(cfList, 20, 2);
+    DIVA main = new DIVA(cfList, 20, 2);
 
     Field2d printField2d = new Field2d();
     @Override
