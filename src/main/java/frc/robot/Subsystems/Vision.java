@@ -14,109 +14,163 @@ import edu.wpi.first.apriltag.AprilTagFields;
 import edu.wpi.first.math.geometry.Pose3d;
 import edu.wpi.first.math.geometry.Rotation3d;
 import edu.wpi.first.math.geometry.Transform3d;
-import edu.wpi.first.math.geometry.Translation3d;
+import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj.smartdashboard.Field2d;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
-import frc.robot.Subsystems.SmartLogger.loggingItem;
-import frc.robot.Subsystems.Vision.collectiveCamera;
 
 public class Vision extends SubsystemBase {
-    public static final double OLDEST_POSE = 0.04;
-    public static final AprilTagFieldLayout kTagField = AprilTagFieldLayout.loadField(AprilTagFields.kDefaultField);
 
-    public Pose3d visionPoseRAW = Pose3d.kZero;
-    public Field2d visionField = new Field2d();
-    public class collectiveCamera {
-        PhotonCamera cam;
+    // only used for calculations / pose averaging
+    // not worth using in a majority of other cases
+    private class barebonesPose {
+        double x, y, z, rx, ry, rz;
+
+        public barebonesPose(double x, double y, double z, double rx, double ry, double rz) {
+            this.x = x;
+            this.y = y;
+            this.z = z;
+            this.rx = rx;
+            this.ry = ry;
+            this.rz = rz;
+        }
+    }
+
+    private class cameraFrame {
         PhotonPoseEstimator estimator;
-        Double oldestPoseSeconds;
-        List<PhotonPipelineResult> resultCache = new ArrayList<>();
-        Optional<EstimatedRobotPose> pose;
-        private List<EstimatedRobotPose> poseCache = new ArrayList<>();
-        List<EstimatedRobotPose> poseBuffer = new ArrayList<>();
+        PhotonCamera cameraObject;
 
-        loggingItem cameraLogs;
-
-        collectiveCamera(String name, PhotonPoseEstimator estimator, Double oldestPoseSeconds) {
-            this.cam = new PhotonCamera(name);
-            this.cam.setFPSLimit(50); // prevent buildup
+        public cameraFrame(String name, PhotonPoseEstimator estimator) {
             this.estimator = estimator;
-            this.oldestPoseSeconds = oldestPoseSeconds;
-            this.cameraLogs = new loggingItem(name, 2);
-        }
+            this.cameraObject = new PhotonCamera(name);
+            if (this.cameraObject.getFPSLimit() > 50) {
+                // prevents cache buildup
+                // if it's higher then 50, you'd get more frames from the camera
+                // then wpilib does frame / second
+                // wpilib periodic cycles max at 20ms (before it gets mad at you)
+                // 20ms*50 == 1000ms (or, 1 second)
 
-        public void update() {
-            poseCache = poseBuffer;
-            resultCache = this.cam.getAllUnreadResults();
-
-            if (resultCache.size() > 1) {
-                System.err.println("cache buildup (check 20ms threshhold)");
-            } else if (resultCache.isEmpty()) {
-                return;
-            }
-
-            if (!resultCache.get(0).hasTargets()) {
-                return;
-            }
-
-            this.pose = this.estimator.estimateCoprocMultiTagPose(resultCache.get(0));
-
-            if (this.pose.isEmpty()) {
-                // backup method
-                this.pose = this.estimator.estimateAverageBestTargetsPose(resultCache.get(0));
-                if (this.pose.isEmpty()) {
-                    return;
-                }
-            }
-            cameraLogs.pushValue(this.pose.get().toString());
-            // add pose to cache
-            this.poseCache.add(this.pose.get());
-
-            this.poseBuffer.clear();
-            // if pose is too old, remove from cache
-            for (int i = 0; i < this.poseCache.size(); i++) {
-                if (this.poseCache.get(i).timestampSeconds < this.oldestPoseSeconds) {
-                    this.poseBuffer.add(this.poseCache.get(i));
-                }
+                this.cameraObject.setFPSLimit(50);
             }
         }
     }
 
-    private PhotonPoseEstimator quickEstimator(Transform3d cameraToCenter) {
-        return new PhotonPoseEstimator(kTagField, cameraToCenter);
+    public class SDVA {
+        // smart decay vision array
+
+        int maxCacheLen; // rec: cam count * like 4-ish
+        double oldestPoseSec; // smoothes things out at the cost of slower updates
+
+        cameraFrame[] cameras;
+        List<EstimatedRobotPose> resultCache = new ArrayList<>();
+
+        Pose3d calculatedRobotPose = Pose3d.kZero;
+
+        public SDVA(cameraFrame[] cameras, int maxCacheLen, double oldestPoseSec) {
+            this.cameras = cameras;
+            this.maxCacheLen = maxCacheLen;
+            this.oldestPoseSec = oldestPoseSec;
+        }
+
+        public void capture() {
+            List<PhotonPipelineResult> latestResult;
+            for (int c = 0; c < cameras.length; c++) {
+                // needs to be held here to prevent double fetching for check
+                Optional<EstimatedRobotPose> cacheItem = Optional.empty();
+                latestResult = cameras[c].cameraObject.getAllUnreadResults();
+
+                if (latestResult.isEmpty()) {
+                    continue;
+                }
+
+                if (latestResult.size() > 1) {
+                    System.err.println("result buildup on cam " + cameras[c].cameraObject.getName());
+                }
+
+                // TODO: add other method and filter down to this one as needed
+                cacheItem = cameras[c].estimator.estimateAverageBestTargetsPose(latestResult.get(c));
+
+                if (cacheItem.isPresent()) {
+                    resultCache.add(cacheItem.get());
+                }
+
+            }
+        }
+
+        public void prune() {
+            while (resultCache.size() > maxCacheLen) {
+                resultCache.remove(0);
+            }
+
+            // compile to list before removing to prevent list changes in for loop (bad
+            // practice)
+            List<Integer> toPrune = new ArrayList<>();
+
+            // toPrune in order of 0st index - highest
+            for (int i = 0; i < resultCache.size(); i++) {
+                if (Timer.getTimestamp() - resultCache.get(i).timestampSeconds > oldestPoseSec) {
+                    toPrune.add(i);
+                }
+            }
+            if (toPrune.isEmpty()) {
+                return;
+            }
+            // flip the order using --
+            for (int i = toPrune.size(); i > -1; i--) {
+                resultCache.remove(i);
+            }
+
+        }
+
+        public void calculatePose() {
+            if (resultCache.size() == 0){
+                calculatedRobotPose = Pose3d.kZero;
+                return;
+            }
+            List<barebonesPose> aPoses = new ArrayList<>();
+            barebonesPose averagedPose = new barebonesPose(0, 0, 0, 0, 0, 0);
+            for (EstimatedRobotPose i : resultCache) {
+                Pose3d pullFrom = i.estimatedPose;
+
+                aPoses.add(new barebonesPose(pullFrom.getX(), pullFrom.getY(), pullFrom.getZ(),
+                        pullFrom.getRotation().getX(), pullFrom.getRotation().getY(), pullFrom.getRotation().getZ()));
+            }
+            for (barebonesPose i : aPoses) {
+                averagedPose.x += i.x;
+                averagedPose.y += i.y;
+                averagedPose.z += i.z;
+                averagedPose.rx += i.rx;
+                averagedPose.ry += i.ry;
+                averagedPose.rz += i.rz;
+            }
+            averagedPose.x /= aPoses.size();
+            averagedPose.y /= aPoses.size();
+            averagedPose.z /= aPoses.size();
+            averagedPose.rx /= aPoses.size();
+            averagedPose.ry /= aPoses.size();
+            averagedPose.rz /= aPoses.size();
+
+            calculatedRobotPose = new Pose3d(averagedPose.x, averagedPose.y, averagedPose.z,
+                    new Rotation3d(averagedPose.rx, averagedPose.ry, averagedPose.rz));
+        }
     }
 
-    collectiveCamera[] cameras = {
-            new collectiveCamera("fuzz", quickEstimator(Transform3d.kZero), OLDEST_POSE)
+    cameraFrame[] cfList = {
+            new cameraFrame("fuzz",
+                    new PhotonPoseEstimator(AprilTagFieldLayout.loadField(AprilTagFields.kDefaultField),
+                            Transform3d.kZero))
     };
+    SDVA main = new SDVA(cfList, 4, 4);
 
-    public Pose3d compiledVisionPose(collectiveCamera[] cameraArray) {
-        List<EstimatedRobotPose> compiledPose = new ArrayList<>();
-        Rotation3d compiledRotation = Rotation3d.kZero;
-        Translation3d compiledTranslation = Translation3d.kZero;
-        
-        for (collectiveCamera cam : cameraArray) {
-            compiledPose.addAll(cam.poseBuffer);
-        }
-
-        for (int i = 0; i < compiledPose.size(); i++) {
-            compiledRotation.plus(compiledPose.get(i).estimatedPose.getRotation());
-            compiledTranslation.plus(compiledPose.get(i).estimatedPose.getTranslation());
-        }
-        compiledRotation = compiledRotation.div(compiledPose.size());
-        compiledTranslation = compiledTranslation.div(compiledPose.size());
-
-        return new Pose3d(compiledTranslation, compiledRotation);
-    }
-
+    Field2d printField2d = new Field2d();
     @Override
     public void periodic() {
-        for (collectiveCamera c : cameras) {
-            c.update();
-            c.cameraLogs.smartdashboardHook();
-        }
-        visionField.setRobotPose(compiledVisionPose(cameras).toPose2d());
-        SmartDashboard.putData("vision_est_field",visionField);
+        main.capture();
+        main.prune();
+        main.calculatePose();
+
+        printField2d.setRobotPose(main.calculatedRobotPose.toPose2d());
+
+        SmartDashboard.putData("SDVA field",printField2d);
     }
 }
