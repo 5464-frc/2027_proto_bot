@@ -1,6 +1,7 @@
 package frc.robot.Subsystems;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -14,6 +15,7 @@ import edu.wpi.first.apriltag.AprilTagFields;
 import edu.wpi.first.math.geometry.Pose3d;
 import edu.wpi.first.math.geometry.Rotation3d;
 import edu.wpi.first.math.geometry.Transform3d;
+import edu.wpi.first.networktables.Topic;
 import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj.smartdashboard.Field2d;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
@@ -75,8 +77,7 @@ public class Vision extends SubsystemBase {
         public void capture() {
             List<PhotonPipelineResult> latestResult;
             for (cameraFrame c : cameras) {
-                
-                
+
                 // needs to be held here to prevent double fetching for check
                 Optional<EstimatedRobotPose> cacheItem = Optional.empty();
                 latestResult = c.cameraObject.getAllUnreadResults();
@@ -117,15 +118,16 @@ public class Vision extends SubsystemBase {
             if (toPrune.isEmpty()) {
                 return;
             }
-            // flip the order using --
-            for (int i = toPrune.size(); i > -1; i--) {
+
+            Collections.reverse(toPrune);
+            for (int i : toPrune) {
                 resultCache.remove(i);
             }
 
         }
 
         public void calculatePose() {
-            if (resultCache.size() == 0){
+            if (resultCache.size() == 0) {
                 calculatedRobotPose = Pose3d.kZero;
                 return;
             }
@@ -162,19 +164,19 @@ public class Vision extends SubsystemBase {
                     new PhotonPoseEstimator(AprilTagFieldLayout.loadField(AprilTagFields.kDefaultField),
                             Transform3d.kZero)),
             new cameraFrame("bar", new PhotonPoseEstimator(AprilTagFieldLayout.loadField(AprilTagFields.kDefaultField),
-                            Transform3d.kZero))};
+                    Transform3d.kZero)) };
     DIVA main = new DIVA(cfList, 20, 2);
 
     Field2d printField2d = new Field2d();
+
     @Override
     public void periodic() {
         main.capture();
         main.prune();
         main.calculatePose();
-        
-        System.out.println(main.resultCache.toString());
+
         printField2d.setRobotPose(main.calculatedRobotPose.toPose2d());
 
-        SmartDashboard.putData("SDVA field",printField2d);
+        SmartDashboard.putData("SDVA field", printField2d);
     }
 }
