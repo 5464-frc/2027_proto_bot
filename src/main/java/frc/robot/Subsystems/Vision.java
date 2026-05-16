@@ -74,21 +74,23 @@ public class Vision extends SubsystemBase {
 
         public void capture() {
             List<PhotonPipelineResult> latestResult;
-            for (int c = 0; c < cameras.length; c++) {
+            for (cameraFrame c : cameras) {
+                
+                
                 // needs to be held here to prevent double fetching for check
                 Optional<EstimatedRobotPose> cacheItem = Optional.empty();
-                latestResult = cameras[c].cameraObject.getAllUnreadResults();
+                latestResult = c.cameraObject.getAllUnreadResults();
 
                 if (latestResult.isEmpty()) {
                     continue;
                 }
 
                 if (latestResult.size() > 1) {
-                    System.err.println("result buildup on cam " + cameras[c].cameraObject.getName());
+                    System.err.println("result buildup on cam " + c.cameraObject.getName());
                 }
 
                 // TODO: add other method and filter down to this one as needed
-                cacheItem = cameras[c].estimator.estimateAverageBestTargetsPose(latestResult.get(c));
+                cacheItem = c.estimator.estimateAverageBestTargetsPose(latestResult.get(0));
 
                 if (cacheItem.isPresent()) {
                     resultCache.add(cacheItem.get());
@@ -156,11 +158,12 @@ public class Vision extends SubsystemBase {
     }
 
     cameraFrame[] cfList = {
-            new cameraFrame("fuzz",
+            new cameraFrame("barry",
                     new PhotonPoseEstimator(AprilTagFieldLayout.loadField(AprilTagFields.kDefaultField),
-                            Transform3d.kZero))
-    };
-    SDVA main = new SDVA(cfList, 4, 4);
+                            Transform3d.kZero)),
+            new cameraFrame("bar", new PhotonPoseEstimator(AprilTagFieldLayout.loadField(AprilTagFields.kDefaultField),
+                            Transform3d.kZero))};
+    SDVA main = new SDVA(cfList, 20, 2);
 
     Field2d printField2d = new Field2d();
     @Override
@@ -168,7 +171,8 @@ public class Vision extends SubsystemBase {
         main.capture();
         main.prune();
         main.calculatePose();
-
+        
+        System.out.println(main.resultCache.toString());
         printField2d.setRobotPose(main.calculatedRobotPose.toPose2d());
 
         SmartDashboard.putData("SDVA field",printField2d);
