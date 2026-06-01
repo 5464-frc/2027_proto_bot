@@ -15,7 +15,6 @@ import edu.wpi.first.apriltag.AprilTagFields;
 import edu.wpi.first.math.geometry.Pose3d;
 import edu.wpi.first.math.geometry.Rotation3d;
 import edu.wpi.first.math.geometry.Transform3d;
-import edu.wpi.first.networktables.Topic;
 import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj.smartdashboard.Field2d;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
@@ -90,8 +89,13 @@ public class Vision extends SubsystemBase {
                     System.err.println("result buildup on cam " + c.cameraObject.getName());
                 }
 
-                // TODO: add other method and filter down to this one as needed
-                cacheItem = c.estimator.estimateAverageBestTargetsPose(latestResult.get(0));
+                // primary method (best)
+                cacheItem = c.estimator.estimateCoprocMultiTagPose(latestResult.get(0));
+                if (cacheItem.isEmpty()){
+                    // backup (works with if only 1 apriltag)
+                    cacheItem = c.estimator.estimateAverageBestTargetsPose(latestResult.get(0));
+                }
+                
 
                 if (cacheItem.isPresent()) {
                     resultCache.add(cacheItem.get());
